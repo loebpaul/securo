@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 
-import AccountsPage from '@/pages/accounts'
+import AccountsPage, { AccountDialog } from '@/pages/accounts'
 import { renderWithProviders, t } from '@/test/utils'
 import type { Account, BankConnection } from '@/types'
 
@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
 
 vi.mock('@/lib/api', () => ({
   accounts: { list: api.accountsList },
+  assets: { list: vi.fn().mockResolvedValue([]) },
   connections: {
     list: api.connectionsList,
     getProviders: vi.fn().mockResolvedValue([]),
@@ -142,5 +143,15 @@ describe('AccountsPage connection row actions', () => {
     await user.click(retry)
 
     expect(api.sync).toHaveBeenCalledWith('conn-err')
+  })
+})
+
+describe('AccountDialog account types', () => {
+  it('offers Loan as an account type', () => {
+    renderWithProviders(
+      <AccountDialog open account={null} onClose={vi.fn()} onSave={vi.fn()} loading={false} />,
+    )
+
+    expect(screen.getByRole('option', { name: t('accounts.typeLoan') })).toHaveValue('loan')
   })
 })
