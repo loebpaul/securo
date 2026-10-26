@@ -1,0 +1,14 @@
+{
+  "pr": "https://github.com/securo-finance/securo/pull/1286",
+  "base": "43d48ffb49cecd538cf6ec67a7d059ac180e567e",
+  "head": "492162e3f956c70a8b5b022eeef170ce922513e2",
+  "desktop": {
+    "width": 1440,
+    "height": 1000
+  },
+  "phone": {
+    "width": 390,
+    "height": 844
+  },
+  "data": "Synthetic Example Lender connected checking account; provider-signed balance -42000 USD. The before screen cannot select Loan; the after screen selects Loan. Both display names set to Home Loan. Browser API responses are stubbed; real API behavior is covered separately by backend tests."
+}
