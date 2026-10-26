@@ -43,17 +43,27 @@ def get_account_name(account: Account) -> str:
     return account.display_name or account.name
 
 
-def _simplefin_to_internal_balance(provider: str, account_type: str, balance: Decimal) -> Decimal:
-    """Normalize a SimpleFIN balance to Securo's positive-for-debt convention.
+def _provider_to_internal_balance(
+    provider: str,
+    account_type: str,
+    balance: Decimal,
+    *,
+    provider_account_type: Optional[str] = None,
+) -> Decimal:
+    """Normalize the provider's balance for the account's overridden type.
 
     SimpleFIN reports a credit card's balance as negative debt and exposes no
     account type, so the provider stores it raw and labels every account
     "checking". Pluggy/Enable report card debt as a positive number, which is
     the convention every downstream site (serialize_account, _account_balance_at,
-    sync_opening_balance_for_connected_account, ...) assumes. Flip SimpleFIN card
-    balances to match so those sites stay provider-agnostic.
+    sync_opening_balance_for_connected_account, ...) assumes for cards. Loans
+    instead store signed balances, so a non-SimpleFIN card overridden to Loan
+    needs the opposite conversion. Use the provider's type to distinguish that
+    positive-for-debt snapshot from an already-signed checking balance.
     """
     if provider == "simplefin" and account_type == "credit_card":
+        return -balance
+    if provider != "simplefin" and account_type == "loan" and provider_account_type == "credit_card":
         return -balance
     return balance
 
@@ -527,21 +537,17 @@ async def update_account(
             raise ValueError("Credit card fields can only be set on credit card accounts")
         for key, value in update_data.items():
             setattr(account, key, value)
-        # SimpleFIN stores a card's balance with the raw provider sign (negative
-        # for debt) under type="checking". When the user flips the type across
-        # the credit_card boundary, the downstream display sites start (or stop)
-        # applying the positive-for-debt negation, so the stored value must flip
-        # too — otherwise the card double-counts. Mirror the ingestion-time
-        # normalization (_simplefin_to_internal_balance) here so the correction
-        # is immediate, not deferred to the next sync. Load the provider via
-        # session.get (identity-map hit, never a lazy-load that throws).
+        # Cards store positive debt; loans store a signed balance. Crossing
+        # that boundary must preserve the displayed debt for every provider.
+        # SimpleFIN also needs this flip for every other card type override,
+        # since its provider snapshots are already signed.
         if old_type != new_type and "credit_card" in (old_type, new_type):
             conn = (
                 await session.get(BankConnection, account.connection_id)
                 if account.connection_id is not None
                 else None
             )
-            if conn is not None and conn.provider == "simplefin":
+            if "loan" in (old_type, new_type) or (conn is not None and conn.provider == "simplefin"):
                 account.balance = -account.balance
         # If the override moves the account away from credit_card, drop any
         # stale card metadata so it isn't left half credit-card.

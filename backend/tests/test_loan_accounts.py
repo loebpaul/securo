@@ -194,6 +194,7 @@ async def test_retyping_account_to_loan_resigns_opening_balance_without_balance_
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("provider", ["enable_banking", "simplefin", "pluggy"])
+@pytest.mark.parametrize("source_type", ["checking", "credit_card"])
 async def test_a_bank_connected_account_can_become_a_loan_with_history(
     client: AsyncClient,
     auth_headers,
@@ -201,6 +202,7 @@ async def test_a_bank_connected_account_can_become_a_loan_with_history(
     test_user: User,
     test_workspace: Workspace,
     provider: str,
+    source_type: str,
 ):
     from datetime import datetime, timezone
 
@@ -231,8 +233,8 @@ async def test_a_bank_connected_account_can_become_a_loan_with_history(
         connection_id=connection.id,
         external_id="acc-1",
         name="Lender account",
-        type="checking",
-        balance=-1000,
+        type=source_type,
+        balance=1000 if source_type == "credit_card" else -1000,
         currency="EUR",
     )
     session.add(account)
@@ -283,7 +285,7 @@ async def test_a_bank_connected_account_can_become_a_loan_with_history(
     assert renamed.status_code == 200, renamed.text
     assert renamed.json()["type"] == "loan"
     retyped = await client.patch(
-        f"/api/accounts/{account.id}", headers=auth_headers, json={"type": "checking"}
+        f"/api/accounts/{account.id}", headers=auth_headers, json={"type": source_type}
     )
     assert retyped.status_code == 200, retyped.text
     assert retyped.json()["secured_asset_id"] is None

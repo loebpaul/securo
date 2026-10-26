@@ -24,7 +24,7 @@ from app.models.recurring_transaction import RecurringTransaction
 from app.models.transaction import Transaction
 from app.schemas.account import AccountCreate, AccountUpdate
 from app.services.account_service import (
-    _simplefin_to_internal_balance,
+    _provider_to_internal_balance,
     create_account,
     close_account,
     delete_account,
@@ -1339,26 +1339,26 @@ async def _make_provider_connection(
     return conn.id
 
 
-def test_simplefin_to_internal_balance_flips_card():
+def test_provider_to_internal_balance_flips_card():
     """SimpleFIN reports card debt as a negative number; normalize to positive."""
-    assert _simplefin_to_internal_balance(
+    assert _provider_to_internal_balance(
         "simplefin", "credit_card", Decimal("-500.00")
     ) == Decimal("500.00")
 
 
-def test_simplefin_to_internal_balance_checking_unchanged():
+def test_provider_to_internal_balance_checking_unchanged():
     """A SimpleFIN non-card balance is already in the right convention."""
-    assert _simplefin_to_internal_balance(
+    assert _provider_to_internal_balance(
         "simplefin", "checking", Decimal("1500.00")
     ) == Decimal("1500.00")
 
 
-def test_simplefin_to_internal_balance_other_provider_unchanged():
+def test_provider_to_internal_balance_other_provider_unchanged():
     """Pluggy/Enable already use positive-for-debt — never flip their cards."""
-    assert _simplefin_to_internal_balance(
+    assert _provider_to_internal_balance(
         "pluggy", "credit_card", Decimal("500.00")
     ) == Decimal("500.00")
-    assert _simplefin_to_internal_balance(
+    assert _provider_to_internal_balance(
         "enable_banking", "credit_card", Decimal("500.00")
     ) == Decimal("500.00")
 

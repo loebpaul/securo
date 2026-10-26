@@ -4842,9 +4842,15 @@ async def test_sync_normalizes_simplefin_card_balance_to_positive_for_debt(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("account_type,balance", [("checking", "1234.56"), ("loan", "-650.00")])
-async def test_sync_preserves_simplefin_non_card_type_and_signed_balance(
-    session: AsyncSession, test_user, test_workspace, account_type, balance,
+@pytest.mark.parametrize("provider", ["simplefin", "pluggy", "enable_banking"])
+@pytest.mark.parametrize("account_type,provider_type,balance", [
+    ("checking", "checking", "1234.56"),
+    ("loan", "checking", "-650.00"),
+    ("loan", "credit_card", "-650.00"),
+    ("loan", "credit_card", "25.00"),
+])
+async def test_sync_preserves_overridden_type_and_signed_balance(
+    session: AsyncSession, test_user, test_workspace, provider, account_type, provider_type, balance,
 ):
     """A non-card override survives sync with the provider's signed balance."""
     from app.models.account import Account
@@ -4852,6 +4858,7 @@ async def test_sync_preserves_simplefin_non_card_type_and_signed_balance(
     from app.services.account_service import get_account_with_balances, update_account
 
     conn = await _make_simplefin_connection(session, test_user.id, "SF Checking")
+    conn.provider = provider
     account = Account(
         id=uuid.uuid4(), user_id=test_user.id, connection_id=conn.id,
         external_id="sf-chk-1", name="SimpleFIN Checking", type="checking",
@@ -4866,7 +4873,9 @@ async def test_sync_preserves_simplefin_non_card_type_and_signed_balance(
     mock_provider.get_accounts = AsyncMock(return_value=[
         AccountData(
             external_id="sf-chk-1", name="SimpleFIN Checking",
-            type="checking", balance=Decimal(balance), currency="USD",
+            type=provider_type,
+            balance=-Decimal(balance) if provider != "simplefin" and provider_type == "credit_card" else Decimal(balance),
+            currency="USD",
         ),
     ])
     mock_provider.get_transactions = AsyncMock(return_value=[])
