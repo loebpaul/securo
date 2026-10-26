@@ -193,23 +193,28 @@ async def test_retyping_account_to_loan_resigns_opening_balance_without_balance_
 
 
 @pytest.mark.asyncio
-async def test_a_bank_connected_account_cannot_become_a_loan(
+@pytest.mark.parametrize("provider", ["enable_banking", "simplefin", "pluggy"])
+async def test_a_bank_connected_account_can_become_a_loan_with_history(
     client: AsyncClient,
     auth_headers,
     session: AsyncSession,
     test_user: User,
     test_workspace: Workspace,
+    provider: str,
 ):
     from datetime import datetime, timezone
 
     from app.models.account import Account
     from app.models.bank_connection import BankConnection
+    from app.services.account_service import sync_opening_balance_for_connected_account
+
+    home = await _asset(session, test_user, test_workspace, "real_estate")
 
     connection = BankConnection(
         id=uuid.uuid4(),
         user_id=test_user.id,
         workspace_id=test_workspace.id,
-        provider="enable_banking",
+        provider=provider,
         external_id=f"ext-{uuid.uuid4().hex[:8]}",
         institution_name="Lender",
         credentials={"token": "fake"},
@@ -231,14 +236,58 @@ async def test_a_bank_connected_account_cannot_become_a_loan(
         currency="EUR",
     )
     session.add(account)
+    await session.flush()
+    payment = Transaction(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        account_id=account.id,
+        external_id="payment-1",
+        description="Loan repayment",
+        amount=100,
+        currency="EUR",
+        date=app_today(),
+        type="credit",
+        source="sync",
+    )
+    session.add(payment)
+    await session.flush()
+    await sync_opening_balance_for_connected_account(session, account)
     await session.commit()
+    before = list((await session.scalars(
+        select(Transaction).where(Transaction.account_id == account.id).order_by(Transaction.id)
+    )).all())
+    history = [(tx.id, tx.amount, tx.type, tx.date, tx.source) for tx in before]
 
     response = await client.patch(
-        f"/api/accounts/{account.id}", headers=auth_headers, json={"type": "loan"}
+        f"/api/accounts/{account.id}",
+        headers=auth_headers,
+        json={"type": "loan", "secured_asset_id": str(home.id), "display_name": "Home loan"},
     )
 
-    assert response.status_code == 400
-    assert "cannot be loans" in response.json()["detail"]
+    assert response.status_code == 200, response.text
+    assert response.json()["type"] == "loan"
+    assert response.json()["secured_asset_id"] == str(home.id)
+    assert response.json()["current_balance"] == -1000
+    assert response.json()["connection_id"] == str(connection.id)
+    summary = await client.get(f"/api/accounts/{account.id}/summary", headers=auth_headers)
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["current_balance"] == -1000
+    after = (await session.scalars(
+        select(Transaction).where(Transaction.account_id == account.id).order_by(Transaction.id)
+    )).all()
+    assert [(tx.id, tx.amount, tx.type, tx.date, tx.source) for tx in after] == history
+
+    renamed = await client.patch(
+        f"/api/accounts/{account.id}", headers=auth_headers, json={"display_name": "Mortgage"}
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["type"] == "loan"
+    retyped = await client.patch(
+        f"/api/accounts/{account.id}", headers=auth_headers, json={"type": "checking"}
+    )
+    assert retyped.status_code == 200, retyped.text
+    assert retyped.json()["secured_asset_id"] is None
+    assert retyped.json()["current_balance"] == -1000
 
 
 @pytest.mark.asyncio

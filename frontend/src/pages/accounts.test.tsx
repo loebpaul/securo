@@ -147,8 +147,11 @@ describe('AccountsPage connection row actions', () => {
 })
 
 describe('AccountDialog account types', () => {
-  it('saves Loan when editing an existing manual checking account', async () => {
-    const account = { ...makeAccount('conn-1'), connection_id: null }
+  it.each([
+    { kind: 'manual', connectionId: null },
+    { kind: 'bank-connected', connectionId: 'conn-1' },
+  ])('saves Loan when editing an existing $kind checking account', async ({ connectionId }) => {
+    const account = { ...makeAccount('conn-1'), connection_id: connectionId }
     const onSave = vi.fn()
     const { user } = renderWithProviders(
       <AccountDialog open account={account} onClose={vi.fn()} onSave={onSave} loading={false} />,

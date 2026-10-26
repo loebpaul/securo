@@ -459,12 +459,15 @@ async def update_account(
     update_data = data.model_dump(exclude_unset=True)
     balance_date = update_data.pop("balance_date", None)
     new_type = update_data.get("type", account.type)
-    if account.connection_id is not None and new_type == "loan":
-        raise ValueError("Bank-connected accounts cannot be loans yet")
-    # Switching between a loan and any other type flips what the balance means
+    # Switching a manual account to or from a loan flips what the balance means
     # (money held vs. money owed). That is safe for an account that only has
     # its opening balance; with real history it would silently reinterpret it.
-    if new_type != account.type and "loan" in {account.type, new_type}:
+    # Connected accounts keep the provider's signed balance and transaction history.
+    if (
+        account.connection_id is None
+        and new_type != account.type
+        and "loan" in {account.type, new_type}
+    ):
         has_history = await session.scalar(
             select(Transaction.id)
             .where(
@@ -505,6 +508,7 @@ async def update_account(
         editable_fields = {
             "display_name",
             "type",
+            "secured_asset_id",
             "credit_limit",
             "statement_close_day",
             "payment_due_day",
@@ -517,7 +521,7 @@ async def update_account(
             raise ValueError("Cannot edit bank-connected accounts")
         old_type = account.type
         new_type = update_data.get("type", account.type)
-        cc_fields = editable_fields - {"display_name", "type"}
+        cc_fields = editable_fields - {"display_name", "type", "secured_asset_id"}
         cc_update = {k: v for k, v in update_data.items() if k in cc_fields}
         if cc_update and new_type != "credit_card":
             raise ValueError("Credit card fields can only be set on credit card accounts")
@@ -548,6 +552,8 @@ async def update_account(
             account.minimum_payment = None
             account.card_brand = None
             account.card_level = None
+        if new_type != "loan":
+            account.secured_asset_id = None
         if cycle_fields_changed:
             await _recompute_effective_dates(session, account)
         await session.commit()

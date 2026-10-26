@@ -4842,12 +4842,14 @@ async def test_sync_normalizes_simplefin_card_balance_to_positive_for_debt(
 
 
 @pytest.mark.asyncio
-async def test_sync_leaves_simplefin_checking_balance_unchanged(
-    session: AsyncSession, test_user, test_workspace,
+@pytest.mark.parametrize("account_type,balance", [("checking", "1234.56"), ("loan", "-650.00")])
+async def test_sync_preserves_simplefin_non_card_type_and_signed_balance(
+    session: AsyncSession, test_user, test_workspace, account_type, balance,
 ):
-    """A SimpleFIN non-card account (no override) keeps the provider's balance
-    verbatim — the normalization only applies to credit_card."""
+    """A non-card override survives sync with the provider's signed balance."""
     from app.models.account import Account
+    from app.schemas.account import AccountUpdate
+    from app.services.account_service import get_account_with_balances, update_account
 
     conn = await _make_simplefin_connection(session, test_user.id, "SF Checking")
     account = Account(
@@ -4857,13 +4859,14 @@ async def test_sync_leaves_simplefin_checking_balance_unchanged(
     )
     session.add(account)
     await session.commit()
+    await update_account(session, account.id, test_workspace.id, AccountUpdate(type=account_type))
 
     mock_provider = AsyncMock()
     mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
     mock_provider.get_accounts = AsyncMock(return_value=[
         AccountData(
             external_id="sf-chk-1", name="SimpleFIN Checking",
-            type="checking", balance=Decimal("1234.56"), currency="USD",
+            type="checking", balance=Decimal(balance), currency="USD",
         ),
     ])
     mock_provider.get_transactions = AsyncMock(return_value=[])
@@ -4876,7 +4879,11 @@ async def test_sync_leaves_simplefin_checking_balance_unchanged(
         await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     await session.refresh(account)
-    assert account.balance == Decimal("1234.56")
+    assert account.type == account_type
+    assert account.balance == Decimal(balance)
+    payload = await get_account_with_balances(session, account.id, test_workspace.id)
+    assert payload is not None
+    assert payload["current_balance"] == float(balance)
 
 
 # ---------------------------------------------------------------------------
