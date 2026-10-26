@@ -147,11 +147,19 @@ describe('AccountsPage connection row actions', () => {
 })
 
 describe('AccountDialog account types', () => {
-  it('offers Loan as an account type', () => {
-    renderWithProviders(
-      <AccountDialog open account={null} onClose={vi.fn()} onSave={vi.fn()} loading={false} />,
+  it('saves Loan when editing an existing manual checking account', async () => {
+    const account = { ...makeAccount('conn-1'), connection_id: null }
+    const onSave = vi.fn()
+    const { user } = renderWithProviders(
+      <AccountDialog open account={account} onClose={vi.fn()} onSave={onSave} loading={false} />,
     )
 
-    expect(screen.getByRole('option', { name: t('accounts.typeLoan') })).toHaveValue('loan')
+    expect(screen.getByRole('heading', { name: t('accounts.editAccount') })).toBeInTheDocument()
+    const [accountType] = screen.getAllByRole('combobox')
+    expect(accountType).toHaveValue('checking')
+    await user.selectOptions(accountType, 'loan')
+    await user.click(screen.getByRole('button', { name: t('common.save') }))
+
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ type: 'loan' }))
   })
 })
