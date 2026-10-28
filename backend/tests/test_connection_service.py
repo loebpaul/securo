@@ -4843,16 +4843,20 @@ async def test_sync_normalizes_simplefin_card_balance_to_positive_for_debt(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("provider", ["simplefin", "pluggy", "enable_banking"])
-@pytest.mark.parametrize("account_type,provider_type,balance", [
-    ("checking", "checking", "1234.56"),
-    ("loan", "checking", "-650.00"),
-    ("loan", "credit_card", "-650.00"),
-    ("loan", "credit_card", "25.00"),
+@pytest.mark.parametrize("account_type,provider_type,reported,stored", [
+    # No override: a checking account keeps the provider's balance verbatim.
+    ("checking", "checking", "1234.56", "1234.56"),
+    # A loan the bank labels "checking" is debt whichever sign it reports.
+    ("loan", "checking", "-650.00", "650.00"),
+    ("loan", "checking", "650.00", "650.00"),
+    # A loan the bank labels a card, signed either way by the provider.
+    ("loan", "credit_card", "-650.00", "650.00"),
+    ("loan", "credit_card", "25.00", "25.00"),
 ])
-async def test_sync_preserves_overridden_type_and_signed_balance(
-    session: AsyncSession, test_user, test_workspace, provider, account_type, provider_type, balance,
+async def test_sync_preserves_overridden_type_and_normalizes_debt(
+    session: AsyncSession, test_user, test_workspace, provider, account_type, provider_type, reported, stored,
 ):
-    """A non-card override survives sync with the provider's signed balance."""
+    """An override survives sync, and a loan always stores its debt positive."""
     from app.models.account import Account
     from app.schemas.account import AccountUpdate
     from app.services.account_service import get_account_with_balances, update_account
@@ -4874,7 +4878,7 @@ async def test_sync_preserves_overridden_type_and_signed_balance(
         AccountData(
             external_id="sf-chk-1", name="SimpleFIN Checking",
             type=provider_type,
-            balance=-Decimal(balance) if provider != "simplefin" and provider_type == "credit_card" else Decimal(balance),
+            balance=Decimal(reported),
             currency="USD",
         ),
     ])
@@ -4889,10 +4893,12 @@ async def test_sync_preserves_overridden_type_and_signed_balance(
 
     await session.refresh(account)
     assert account.type == account_type
-    assert account.balance == Decimal(balance)
+    assert account.balance == Decimal(stored)
     payload = await get_account_with_balances(session, account.id, test_workspace.id)
     assert payload is not None
-    assert payload["current_balance"] == float(balance)
+    # A liability reads as negative money, so the stored debt is positive.
+    expected = -float(stored) if account_type == "loan" else float(stored)
+    assert payload["current_balance"] == expected
 
 
 # ---------------------------------------------------------------------------

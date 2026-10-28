@@ -1454,6 +1454,81 @@ async def test_update_simplefin_type_change_not_crossing_card_keeps_balance(
     assert updated.balance == Decimal("1500.00")
 
 
+def test_provider_to_internal_balance_flips_loan():
+    assert _provider_to_internal_balance(
+        "simplefin", "loan", Decimal("-250000.00")
+    ) == Decimal("250000.00")
+
+
+def test_provider_to_internal_balance_stores_any_loan_as_positive_debt():
+    for provider in ("enable_banking", "pluggy", "simplefin"):
+        assert _provider_to_internal_balance(
+            provider, "loan", Decimal("-250000.00")
+        ) == Decimal("250000.00")
+        assert _provider_to_internal_balance(
+            provider, "loan", Decimal("250000.00")
+        ) == Decimal("250000.00")
+
+
+def test_provider_to_internal_balance_keeps_checking_raw():
+    """A loan synced before loans existed is stored as checking; its balance
+    must keep the bank's sign so it still shows as debt, not flip to an asset."""
+    assert _provider_to_internal_balance(
+        "enable_banking", "checking", Decimal("-250000.00")
+    ) == Decimal("-250000.00")
+
+
+
+
+
+
+@pytest.mark.asyncio
+async def test_update_simplefin_loan_to_credit_card_keeps_liability_sign(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn_id = await _make_provider_connection(session, test_user.id, "simplefin")
+    account = await _make_account(
+        session,
+        test_user.id,
+        "SimpleFIN Mortgage",
+        acc_type="loan",
+        balance="250000.00",
+        connection_id=conn_id,
+        external_id="sf-loan-card-1",
+    )
+
+    updated = await update_account(
+        session, account.id, test_workspace.id, AccountUpdate(type="credit_card")
+    )
+
+    assert updated is not None
+    assert updated.balance == Decimal("250000.00")
+    assert serialize_account(updated, None, None)["current_balance"] == pytest.approx(-250000.0)
+
+
+@pytest.mark.asyncio
+async def test_update_simplefin_loan_to_checking_flips_balance_to_asset_sign(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn_id = await _make_provider_connection(session, test_user.id, "simplefin")
+    account = await _make_account(
+        session,
+        test_user.id,
+        "SimpleFIN Mortgage",
+        acc_type="loan",
+        balance="250000.00",
+        connection_id=conn_id,
+        external_id="sf-loan-checking-1",
+    )
+
+    updated = await update_account(
+        session, account.id, test_workspace.id, AccountUpdate(type="checking")
+    )
+
+    assert updated is not None
+    assert updated.balance == Decimal("-250000.00")
+
+
 # ----- per-account institution resolution (issue #345) ------------------------
 
 

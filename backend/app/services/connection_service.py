@@ -2403,14 +2403,15 @@ async def sync_connection(
             if account:
                 # Normalize the provider sign using the account's CURRENT type,
                 # which reflects any user override (sync never rewrites `type`).
-                # Cards store positive debt; loans store signed balances. The
-                # provider's own type identifies positive-for-debt card snapshots
-                # even after a user has reclassified that account as a loan.
+                # SimpleFIN reports card debt as negative under a "checking"
+                # label; once the user overrides the type to credit_card the
+                # downstream sites negate it, so store positive-for-debt to keep
+                # them provider-agnostic and avoid double-counting. A loan reads
+                # the same way whatever the provider called the account.
                 account.balance = _provider_to_internal_balance(
                     connection.provider,
                     account.type,
                     _account_balance(acc_data, auto_invested_deducted),
-                    provider_account_type=acc_data.type,
                 )
                 account.name = acc_data.name
                 # Backfills existing accounts on their next sync. Only written
@@ -2466,7 +2467,11 @@ async def sync_connection(
                     display_name=institution.name if institution else None,
                     masked_number=acc_data.masked_number,
                     type=acc_data.type,
-                    balance=_account_balance(acc_data, auto_invested_deducted),
+                    balance=_provider_to_internal_balance(
+                        connection.provider,
+                        acc_data.type,
+                        _account_balance(acc_data, auto_invested_deducted),
+                    ),
                     currency=acc_data.currency,
                     credit_limit=acc_data.credit_limit if is_cc else None,
                     statement_close_day=acc_data.statement_close_day if is_cc else None,
