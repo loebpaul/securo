@@ -563,10 +563,14 @@ async def update_account(
         # for debt) under type="checking". When the user flips the type across
         # a liability boundary, the downstream display sites start (or stop)
         # applying the positive-for-debt negation, so the stored value must flip
-        # too — otherwise the card double-counts. Mirror the ingestion-time
+        # too, otherwise the card double-counts. Mirror the ingestion-time
         # normalization (_provider_to_internal_balance) here so the correction
         # is immediate, not deferred to the next sync. Load the provider via
         # session.get (identity-map hit, never a lazy-load that throws).
+        #
+        # Leaving a loan needs that flip for every provider, so the debt the
+        # account showed survives the way back. Entering one does not: the
+        # normalization below takes the magnitude, which makes the flip moot.
         if (old_type in LIABILITY_ACCOUNT_TYPES) != (new_type in LIABILITY_ACCOUNT_TYPES):
             conn = (
                 await session.get(BankConnection, account.connection_id)
@@ -1358,7 +1362,13 @@ async def get_period_opening_balance(
                 is_inside_provider_snapshot(),
             )
         )
-        opening_balance = float(account.balance) - float(posted_result.scalar() or 0)
+        # The snapshot stores a liability's debt positive, while the walk this
+        # seeds is signed like every other balance on screen. Only a loan
+        # reaches this: a connected card returns 0.0 above.
+        snapshot = float(account.balance)
+        if account.type in LIABILITY_ACCOUNT_TYPES:
+            snapshot = -snapshot
+        opening_balance = snapshot - float(posted_result.scalar() or 0)
         opening_balance -= float(pending_result.scalar() or 0)
 
         if date_from > today:
