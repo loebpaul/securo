@@ -537,6 +537,9 @@ async def update_account(
     # account creation and never overwrites it afterwards, so the override
     # survives subsequent syncs without a separate field.
     if account.connection_id is not None:
+        # The contract terms describe the agreement with the lender, not
+        # anything the provider reports, so a connected loan can carry them
+        # and the sync has nothing to say about them.
         editable_fields = {
             "display_name",
             "type",
@@ -547,16 +550,20 @@ async def update_account(
             "minimum_payment",
             "card_brand",
             "card_level",
+            *LOAN_TERM_FIELDS,
         }
         disallowed = set(update_data.keys()) - editable_fields
         if disallowed:
             raise ValueError("Cannot edit bank-connected accounts")
         old_type = account.type
         new_type = update_data.get("type", account.type)
-        cc_fields = editable_fields - {"display_name", "type", "secured_asset_id"}
+        cc_fields = editable_fields - {"display_name", "type", "secured_asset_id", *LOAN_TERM_FIELDS}
         cc_update = {k: v for k, v in update_data.items() if k in cc_fields}
         if cc_update and new_type != "credit_card":
             raise ValueError("Credit card fields can only be set on credit card accounts")
+        loan_update = {k: v for k, v in update_data.items() if k in LOAN_TERM_FIELDS}
+        if loan_update and new_type != "loan":
+            raise ValueError("Loan contract terms can only be set on loan accounts")
         for key, value in update_data.items():
             setattr(account, key, value)
         # SimpleFIN stores a card's balance with the raw provider sign (negative
