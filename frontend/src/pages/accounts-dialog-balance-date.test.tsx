@@ -1,8 +1,11 @@
 import { fireEvent, screen } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import { renderWithProviders, t } from '@/test/utils'
+import { localDateString } from '@/lib/date-utils'
 import type { Account } from '@/types'
 
+const timezone = vi.hoisted(() => ({ value: 'UTC' }))
+vi.mock('@/hooks/use-timezone', () => ({ useEffectiveTimezone: () => timezone.value }))
 vi.mock('@/contexts/auth-context', () => ({ useAuth: () => ({ user: null }) }))
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
@@ -58,6 +61,45 @@ it('sends the date when the user changes it', () => {
   fireEvent.click(screen.getByRole('button', { name: t('common.save') }))
 
   expect(onSave.mock.calls[0][0]).toMatchObject({ balance_date: '2026-07-15' })
+})
+
+it('uses the workspace date when an existing manual balance changes', () => {
+  vi.setSystemTime(new Date('2026-11-20T12:00:00Z'))
+  try {
+    const localDate = localDateString()
+    timezone.value = localDate === '2026-11-21' ? 'Pacific/Honolulu' : 'Pacific/Kiritimati'
+    const workspaceDate = timezone.value === 'Pacific/Honolulu' ? '2026-11-20' : '2026-11-21'
+    expect(workspaceDate).not.toBe(localDate)
+    const onSave = renderDialog(manual)
+
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '1200' } })
+
+    expect(screen.getByLabelText('balance date')).toHaveValue(workspaceDate)
+    fireEvent.click(screen.getByRole('button', { name: t('common.save') }))
+    expect(onSave.mock.calls[0][0]).toMatchObject({ balance: 1200, balance_date: workspaceDate })
+  } finally {
+    vi.useRealTimers()
+    timezone.value = 'UTC'
+  }
+})
+
+it('allows a different date to be selected after changing the balance', () => {
+  const onSave = renderDialog(manual)
+
+  fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '1200' } })
+  fireEvent.change(screen.getByLabelText('balance date'), { target: { value: '2026-07-15' } })
+  fireEvent.click(screen.getByRole('button', { name: t('common.save') }))
+
+  expect(onSave.mock.calls[0][0]).toMatchObject({ balance: 1200, balance_date: '2026-07-15' })
+})
+
+it('keeps a selected date when entering a new account balance', () => {
+  renderDialog(null)
+
+  fireEvent.change(screen.getByLabelText('balance date'), { target: { value: '2026-07-15' } })
+  fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '1200' } })
+
+  expect(screen.getByLabelText('balance date')).toHaveValue('2026-07-15')
 })
 
 it('always sends the date for a new account', () => {

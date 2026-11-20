@@ -4,10 +4,11 @@ import { getConnectionName } from '@/lib/connection-utils'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
+import { useEffectiveTimezone } from '@/hooks/use-timezone'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { accounts, assets, connections, currencies } from '@/lib/api'
-import { localDateString } from '@/lib/date-utils'
+import { localDateString, todayInTimezone } from '@/lib/date-utils'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -778,6 +779,7 @@ export function AccountDialog({
 }) {
   const { t } = useTranslation()
   const { user } = useAuth()
+  const timeZone = useEffectiveTimezone()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const { data: supportedCurrencies } = useQuery({
     queryKey: ['currencies'],
@@ -950,7 +952,10 @@ export function AccountDialog({
                     step="0.01"
                     min={type === 'credit_card' || type === 'loan' ? '0' : undefined}
                     value={balance}
-                    onChange={(e) => setBalance(e.target.value)}
+                    onChange={(e) => {
+                      setBalance(e.target.value)
+                      if (account) setBalanceDate(todayInTimezone(timeZone))
+                    }}
                   />
                 </div>
                 <div className="space-y-2">
